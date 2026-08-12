@@ -20,5 +20,13 @@ ignore = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Put the project root on sys.path so `from src.api import app` resolves.
+#
+# Without this, `python -m pytest` passes and bare `pytest` fails with
+# ModuleNotFoundError -- because the `-m` form inserts the current directory
+# into sys.path and the console-script form does not. That difference is
+# invisible locally if you only ever type one of them, and it surfaces as a
+# CI-only failure. Setting it here makes both invocations behave identically.
+pythonpath = ["."]
 # Silence a Starlette deprecation about httpx that we cannot act on yet.
 filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning"]
