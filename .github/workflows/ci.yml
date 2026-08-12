@@ -82,11 +82,22 @@ jobs:
       # -p 8080:8000 deliberately maps a different external port than the
       # container listens on, which is what a real platform does. If the app
       # ever hardcoded 8000 in a URL somewhere, this catches it.
+      # --memory-swap is NOT optional here, and leaving it off is what let a
+      # production OOM through this check.
+      #
+      # `docker run --memory=1g` alone defaults swap to TWICE the memory limit,
+      # so the container gets 1 GB RAM plus 1 GB swap and quietly survives a
+      # peak that a real 1 GB VM cannot. Fly runs Firecracker with no swap at
+      # all. Setting --memory-swap equal to --memory disables swap entirely and
+      # makes this an honest simulation of the production budget.
+      #
+      # Keep both numbers in sync with [[vm]] memory in fly.toml.
       - name: Start container
-        run: docker run -d --name detector -p 8080:8000 --memory=1g detector:ci
+        run: |
+          docker run -d --name detector -p 8080:8000 \
+            --memory=2g --memory-swap=2g \
+            detector:ci
 
-      # --memory=1g matches the Fly VM. Without it the runner's 7 GB hides an
-      # OOM that would only appear in production.
       - name: Smoke test
         run: python scripts/smoke_test.py http://127.0.0.1:8080 --timeout 180
 

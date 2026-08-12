@@ -105,6 +105,33 @@ primary_region = 'syd'
 
 [[vm]]
   size = 'shared-cpu-1x'
-  memory = '1gb'
   cpus = 1
-  memory_mb = 1024
+
+  # 2 GB. The first attempt at 1 GB OOM-killed in a restart loop:
+  #   Out of memory: Killed process 642 (uvicorn)
+  #   total-vm:1361188kB, anon-rss:874836kB
+  #
+  # Measured on the real image (cgroup counters, TORCH_THREADS=1):
+  #   peak during startup   1,507 MB   <- what actually sizes the machine
+  #   steady state          1,283 MB
+  #   `docker stats` said     706 MB   <- what I wrongly sized it on
+  #
+  # Two lessons, both of which cost a failed deploy:
+  #
+  # 1. PEAK sizes a machine, not steady state. open_clip's
+  #    create_model_and_transforms() instantiates the ENTIRE CLIP model -- both
+  #    towers, 151M params, ~605 MB of fp32 -- and Detector.__init__ discards
+  #    the text tower only afterwards. So the optimisation that cut steady
+  #    state from 1,696 MB to 729 MB does nothing at all for the peak.
+  #
+  # 2. `docker stats` SUBTRACTS page cache from the figure it reports; the
+  #    kernel's OOM killer does not. The ~577 MB gap between 706 and 1,283 is
+  #    almost exactly the CLIP checkpoint file sitting in page cache. Read
+  #    /sys/fs/cgroup/memory.peak instead -- it is the high-water mark and it
+  #    counts everything.
+  #
+  # Locally this survived at 1 GB because the kernel could evict page cache
+  # under pressure. Fly's Firecracker VM had 875 MB of *anonymous* memory --
+  # model tensors, not reclaimable -- and nothing left to evict.
+  memory = '2gb'
+  memory_mb = 2048
