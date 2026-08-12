@@ -34,11 +34,16 @@
 
 app = 'zeroai'
 
-# Where the machine physically runs. 'iad' is Ashburn, Virginia (US East).
-# This is a latency decision, not a capability one -- pick the region nearest
-# your users. Changing it is free before the first deploy and requires moving
-# the machine afterwards.
-primary_region = 'iad'
+# Where the machine physically runs. 'syd' is Sydney.
+#
+# This is a latency decision, not a capability one -- the same container runs
+# identically anywhere. `flyctl launch` defaulted to 'iad' (Virginia), which
+# would have added ~250-300 ms of Pacific round-trip to every request on top of
+# the ~300-500 ms of single-vCPU inference, making the app feel slow for reasons
+# having nothing to do with the model.
+#
+# Free to change before the first deploy; requires moving the machine after.
+primary_region = 'syd'
 
 [build]
   dockerfile = 'Dockerfile'
