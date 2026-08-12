@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.py[cod]
+
+# Datasets and cached embeddings are regenerable from src/download_data.py,
+# and would be tens of thousands of files / hundreds of MB in git history.
+data/
+
+# Training records stay out; the shipped head is committed.
+#
+# head.pt is 545 KB, and the Docker build and CI both need it. The alternatives
+# -- retraining in CI (needs the 14k-image dataset), git-lfs, or a release
+# asset -- all add moving parts to fetch half a megabyte. Committing it keeps
+# the image build reproducible from a clean checkout with no external fetch.
+# This stops being the right answer somewhere around 100 MB.
+artifacts/*
+!artifacts/head.pt
+
+.DS_Store

@@ -1,0 +1,30 @@
+# Everything here is excluded from the build context -- the tarball Docker
+# ships to the daemon before running a single instruction. data/ alone is
+# ~14,000 files; sending it would slow every build and it is never used at
+# inference time.
+#
+# This file is also a correctness control, not just a speed one: anything not
+# excluded can be silently baked into an image layer by a broad `COPY . .`,
+# including .env files and credentials.
+
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+data/
+docs/
+*.md
+!README.md
+
+.git/
+.github/
+.gitignore
+.pytest_cache/
+.ruff_cache/
+
+# Training-only artifacts. The image needs head.pt and nothing else from here;
+# history/eval JSON are development records.
+artifacts/*.history.json
+artifacts/eval-*.json
+artifacts/linear.pt

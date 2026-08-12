@@ -1,0 +1,78 @@
+# Fly.io deployment config.
+#
+# Platform choice, decided against measured numbers rather than marketing:
+#   image size    2.35 GB
+#   steady RSS      729 MB
+#   cold start     ~24 s to healthy
+#   inference     ~112 ms median (multi-threaded, Docker Desktop VM)
+#
+#   Render      Free and Starter tiers are 512 MB RAM. We need 729 MB, so both
+#               are out -- the container would be OOM-killed mid-load. Standard
+#               (2 GB) fits at ~$25/mo. Render's git integration is the nicest
+#               of the three, but paying $25/mo for a demo is the wrong shape.
+#   Modal       Serverless, scale-to-zero, generous free credits, and by far
+#               the best fit for bursty traffic. But it is Python-native: you
+#               define the image in a Python DSL rather than deploying the
+#               Dockerfile we just wrote. Choosing it means Stage 4 stops being
+#               the thing that gets deployed.
+#   Fly.io      Deploys this exact Dockerfile unmodified. 1 GB shared-cpu-1x
+#               (~$5.70/mo) fits 729 MB with headroom. Scale-to-zero drops idle
+#               cost to near nothing. `flyctl deploy` is an explicit step in the
+#               workflow, so the deploy is legible instead of magic.  <- chosen
+#
+# Also worth knowing: HuggingFace Spaces' free CPU tier is 2 vCPU / 16 GB and
+# accepts a Dockerfile. Genuinely free and would fit comfortably. It is a worse
+# teaching example -- it is a model-demo host, not general infrastructure.
+
+app = "ai-image-detector"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8000"
+  # shared-cpu-1x is a single vCPU. Left unset, torch would size its thread
+  # pool from the host's visible core count and spawn ~8 threads to fight over
+  # one core -- slower than single-threaded, and more memory. See
+  # Detector.__init__ for the mechanism.
+  #
+  # Expect latency well above the 112 ms measured locally with multiple
+  # threads; single-core inference on shared CPU is realistically 300-500 ms.
+  TORCH_THREADS = "1"
+  ALLOWED_ORIGINS = "*"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+
+  # Scale to zero when idle. The tradeoff is explicit: idle cost goes to ~$0,
+  # but the first request after a suspend pays the cold start. "suspend"
+  # snapshots memory rather than killing the machine, so resume is a few
+  # seconds instead of the full ~24 s model load.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    # Inference is CPU-bound and single-threaded here, so requests queue rather
+    # than overlap usefully. Low limits make Fly shed or queue load at the edge
+    # instead of letting 50 requests pile into one process and all time out.
+    soft_limit = 2
+    hard_limit = 4
+
+# Fly's own health probe. This is separate from the Dockerfile HEALTHCHECK:
+# that one is for local `docker` and is ignored by Fly. grace_period must
+# exceed the model load time or Fly kills the machine before it ever finishes
+# starting -- and the failure looks like a crash loop, not a slow boot.
+[[http_service.checks]]
+  method = "GET"
+  path = "/health"
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "90s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

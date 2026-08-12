@@ -1,0 +1,13 @@
+# Normalise line endings to LF in the repository.
+#
+# Developed on Windows, built into a Linux container. Without this, files
+# checked in with CRLF get COPYed into the image and anything the shell
+# interprets breaks in ways that read as nonsense -- a shebang followed by \r
+# produces "bad interpreter: no such file or directory", naming a file that
+# plainly exists.
+* text=auto eol=lf
+
+# Never touch binaries.
+*.png binary
+*.pt  binary
+*.npz binary

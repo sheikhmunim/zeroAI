@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Image Detector</title>
+<style>
+  :root { color-scheme: light dark; --line: #8883; --dim: #8886; }
+  body {
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    max-width: 42rem; margin: 0 auto; padding: 2rem 1.25rem;
+  }
+  h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
+  .sub { color: var(--dim); margin: 0 0 1.75rem; font-size: .9rem; }
+  #drop {
+    border: 2px dashed var(--line); border-radius: 10px; padding: 2.25rem 1rem;
+    text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  #drop:hover, #drop.over { border-color: #6b9bd2; background: #6b9bd216; }
+  #drop input { display: none; }
+  .controls { display: flex; align-items: center; gap: .75rem; margin: 1.25rem 0; font-size: .9rem; }
+  .controls input[type=range] { flex: 1; }
+  #preview { max-width: 224px; max-height: 224px; border-radius: 8px; display: block;
+             margin: 1.5rem auto 0; image-rendering: pixelated; border: 1px solid var(--line); }
+  #result { margin-top: 1.5rem; padding: 1.1rem 1.25rem; border-radius: 10px;
+            border: 1px solid var(--line); display: none; }
+  #result.show { display: block; }
+  .verdict { font-size: 1.5rem; font-weight: 650; letter-spacing: -.01em; }
+  .verdict.ai { color: #d1483f; } .verdict.real { color: #2e8b57; }
+  .bar { height: 7px; border-radius: 4px; background: var(--line); overflow: hidden; margin: .8rem 0 .55rem; }
+  .bar > i { display: block; height: 100%; background: currentColor; transition: width .3s; }
+  .meta { color: var(--dim); font-size: .82rem; }
+  .err { color: #d1483f; }
+  code { font-size: .85em; background: var(--line); padding: .1em .35em; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<h1>AI Image Detector</h1>
+<p class="sub">Frozen CLIP ViT-B/32 + trained MLP head. 95.4% on held-out CIFAKE
+&mdash; see the README for why that number overstates real-world accuracy.</p>
+
+<label id="drop">
+  <input type="file" id="file" accept="image/*">
+  <strong>Choose an image</strong> or drop one here
+</label>
+
+<div class="controls">
+  <label for="thr">threshold</label>
+  <input type="range" id="thr" min="0.05" max="0.95" step="0.05" value="0.5">
+  <code id="thrval">0.50</code>
+</div>
+
+<img id="preview" hidden alt="selected image preview">
+
+<div id="result"></div>
+
+<script>
+// When the page is served by FastAPI itself, the API is same-origin and a
+// relative path works. Opened straight off disk (file://) there is no origin
+// to be relative to, so fall back to the dev server -- which is exactly the
+// case that needs CORS enabled on the API.
+const API = location.protocol === 'file:' ? 'http://127.0.0.1:8000' : '';
+
+const fileInput = document.getElementById('file');
+const drop      = document.getElementById('drop');
+const preview   = document.getElementById('preview');
+const result    = document.getElementById('result');
+const thr       = document.getElementById('thr');
+const thrval    = document.getElementById('thrval');
+
+let lastFile = null;
+
+thr.addEventListener('input', () => {
+  thrval.textContent = Number(thr.value).toFixed(2);
+  if (lastFile) classify(lastFile);   // re-score instantly on threshold change
+});
+
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) handle(e.target.files[0]);
+});
+
+['dragenter','dragover'].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(ev =>
+  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => {
+  const f = e.dataTransfer.files[0];
+  if (f) handle(f);
+});
+
+function handle(file) {
+  lastFile = file;
+  preview.src = URL.createObjectURL(file);
+  preview.hidden = false;
+  classify(file);
+}
+
+async function classify(file) {
+  result.className = 'show';
+  result.innerHTML = '<span class="meta">classifying&hellip;</span>';
+
+  // FormData produces a multipart/form-data body -- the same encoding an HTML
+  // <form enctype="multipart/form-data"> sends, and what FastAPI's UploadFile
+  // expects. Do NOT set Content-Type manually: the browser has to append the
+  // multipart boundary token, and hardcoding the header strips it, which makes
+  // the server fail to parse the body.
+  const body = new FormData();
+  body.append('file', file);
+
+  try {
+    const res = await fetch(`${API}/predict?threshold=${thr.value}`, { method: 'POST', body });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail || `HTTP ${res.status}`);
+    }
+    render(await res.json());
+  } catch (err) {
+    result.innerHTML = `<span class="err"><strong>Failed.</strong> ${err.message}</span>
+      <div class="meta" style="margin-top:.5rem">Is the API running on
+      <code>${API || location.origin}</code>?</div>`;
+  }
+}
+
+function render(r) {
+  const pct = (r.confidence * 100).toFixed(1);
+  const cls = r.label === 'ai' ? 'ai' : 'real';
+  const text = r.label === 'ai' ? 'AI-generated' : 'Real photograph';
+  result.innerHTML = `
+    <div class="verdict ${cls}">${text}</div>
+    <div class="bar ${cls}" style="color:${cls === 'ai' ? '#d1483f' : '#2e8b57'}">
+      <i style="width:${pct}%"></i>
+    </div>
+    <div class="meta">
+      ${pct}% confident &middot; p(ai) = ${r.p_ai.toFixed(4)}
+      &middot; threshold ${r.threshold} &middot; ${r.inference_ms} ms
+    </div>`;
+}
+</script>
+</body>
+</html>

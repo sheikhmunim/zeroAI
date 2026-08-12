@@ -1,0 +1,23 @@
+# Inference-only dependencies -- this is what goes into the Docker image.
+#
+# Deliberately excludes datasets, pandas, pyarrow and scikit-learn, which the
+# training pipeline needs and the server never imports. Together they add
+# several hundred MB to the image for code that never executes in production.
+#
+# Install (CPU-only torch -- the CUDA build is ~3 GB and useless on a CPU host):
+#   uv pip install -r requirements-serve.txt \
+#       --extra-index-url https://download.pytorch.org/whl/cpu \
+#       --index-strategy unsafe-best-match
+
+torch==2.13.0
+torchvision==0.28.0
+open_clip_torch==3.3.0
+pillow==12.3.0
+numpy==2.5.2
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+# Required for UploadFile / multipart form parsing. FastAPI raises at import
+# time without it, so it is a hard dependency despite never being imported
+# by name anywhere in our code.
+python-multipart==0.0.32

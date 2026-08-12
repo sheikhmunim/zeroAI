@@ -1,0 +1,20 @@
+# Training-time dependencies only.
+#
+# These are deliberately kept separate from the (not yet written)
+# requirements-serve.txt. The Docker image in Stage 4 needs to run inference,
+# not training -- it has no business shipping `datasets`, `pandas`, `pyarrow`
+# or `scikit-learn`, which together add hundreds of MB to the image for code
+# that never executes in production.
+#
+# Install (CPU-only torch):
+#   uv pip install -r requirements-train.txt \
+#       --extra-index-url https://download.pytorch.org/whl/cpu \
+#       --index-strategy unsafe-best-match
+
+torch==2.13.0
+torchvision==0.28.0
+open_clip_torch==3.3.0
+datasets==5.0.1
+pillow==12.3.0
+scikit-learn==1.9.0
+numpy==2.5.2

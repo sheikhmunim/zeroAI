@@ -1,0 +1,24 @@
+[project]
+name = "ai-image-detector"
+version = "1.0.0"
+description = "Frozen CLIP backbone + trained MLP head; FastAPI service"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I import sorting, B bugbear, UP pyupgrade,
+# C4 comprehensions, SIM simplification.
+select = ["E", "W", "F", "I", "B", "UP", "C4", "SIM"]
+ignore = [
+    "E501",  # line length is handled by the formatter, not the linter
+    "B008",  # FastAPI's whole dependency system is `= Depends(...)` /
+             # `= File(...)` in defaults; this rule fights the framework
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Silence a Starlette deprecation about httpx that we cannot act on yet.
+filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning"]

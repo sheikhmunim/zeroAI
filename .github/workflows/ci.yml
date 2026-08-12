@@ -1,0 +1,141 @@
+# GitHub Actions workflow.
+#
+# The YAML structure, since this is the first one:
+#   on:    triggers -- which repository events start a run.
+#   jobs:  independent units of work. Each gets a fresh VM ("runner") and they
+#          run in parallel unless `needs:` forces an order. Nothing is shared
+#          between jobs except what you explicitly upload/download or rebuild.
+#   steps: ordered commands inside one job, sharing that job's filesystem.
+#          `uses:` runs a prepackaged action; `run:` runs a shell command.
+#
+# The shape here is a gate: lint, unit tests and a container smoke test all
+# have to pass before deploy is allowed to run at all.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A second push to the same branch cancels the first run still in flight.
+# Without this, pushing three times queues three full deploys and they can land
+# out of order -- the slowest run finishing last would overwrite newer code.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff==0.16.2
+      - name: Lint
+        run: ruff check .
+      - name: Check formatting
+        run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # CLIP's weights are ~600 MB and the tests load them for real. Caching
+      # keyed on the checkpoint name turns a 2-minute download into seconds on
+      # every run after the first.
+      - name: Cache HuggingFace weights
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-ViT-B-32-laion2b_s34b_b79k
+
+      - name: Install
+        run: |
+          pip install -r requirements-serve.txt \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install pytest==9.1.1
+
+      - name: Unit tests
+        run: pytest tests/ -v
+
+  # Separate from `test` because it checks a different class of failure. The
+  # unit suite proves the code is right; this proves the *artifact* is
+  # deployable. See scripts/smoke_test.py for the list of things that pass
+  # pytest and still break in production.
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build --provenance=false -t detector:ci .
+
+      # -p 8080:8000 deliberately maps a different external port than the
+      # container listens on, which is what a real platform does. If the app
+      # ever hardcoded 8000 in a URL somewhere, this catches it.
+      - name: Start container
+        run: docker run -d --name detector -p 8080:8000 --memory=1g detector:ci
+
+      # --memory=1g matches the Fly VM. Without it the runner's 7 GB hides an
+      # OOM that would only appear in production.
+      - name: Smoke test
+        run: python scripts/smoke_test.py http://127.0.0.1:8080 --timeout 180
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs detector
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f detector
+
+  deploy:
+    # `needs` is the gate: deploy runs only if all three succeed.
+    needs: [lint, test, smoke]
+    # ...and only for a real push to main. A pull_request event that happens to
+    # target main must never deploy -- otherwise anyone opening a PR from a
+    # fork could ship code to production.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # How the deploy is actually triggered -- three models, and this picks
+      # the third:
+      #
+      #   1. Platform git integration (Render's default). You connect the repo
+      #      in a dashboard and the platform builds on every push. Zero config,
+      #      but it runs in parallel with CI rather than after it, so a failing
+      #      test does not stop the deploy. That defeats the point of a gate.
+      #   2. Deploy hook / webhook. CI curls a secret URL and the platform
+      #      builds. Ordering is fixed, but the webhook returns as soon as the
+      #      build is *queued*, so a green pipeline means "asked nicely",
+      #      not "deployed".
+      #   3. Explicit CLI deploy from the workflow (this one). `flyctl deploy`
+      #      builds, pushes and releases, and blocks until health checks pass.
+      #      A green pipeline means the new version is actually live and
+      #      serving. It also keeps the deploy legible: it is a command you can
+      #      read and run yourself.
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: flyctl deploy --remote-only --wait-timeout 300
+        env:
+          # Repository secret, set under Settings > Secrets and variables >
+          # Actions. Never a literal in this file -- everything here is public
+          # in a public repo, and committed history is forever.
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      # Deploying and then verifying against the real URL is the difference
+      # between "the deploy command exited 0" and "production works".
+      - name: Verify production
+        run: python scripts/smoke_test.py https://ai-image-detector.fly.dev --timeout 120
