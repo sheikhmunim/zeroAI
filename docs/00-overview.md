@@ -63,6 +63,8 @@ Detailed notes per stage:
 - [`05-deploy-ci.md`](05-deploy-ci.md) — Stages 5–6: platform tradeoffs, workflow structure
 - [`DEPLOYMENT.md`](DEPLOYMENT.md) — **the runbook**: deploy, operate, debug, and
   tear down, start to finish. The *how*, where `05` is the *why*.
+- [`GIT-WORKFLOW.md`](GIT-WORKFLOW.md) — branch-per-change workflow, pull
+  requests, conflicts, and how to undo almost anything
 
 ## Deployment status
 
