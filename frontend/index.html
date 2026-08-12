@@ -5,136 +5,478 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI Image Detector</title>
 <style>
-  :root { color-scheme: light dark; --line: #8883; --dim: #8886; }
-  body {
-    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    max-width: 42rem; margin: 0 auto; padding: 2rem 1.25rem;
+/* ---------------------------------------------------------------- tokens --
+   Colours come from a validated diverging pair: blue <-> red, neutral grey
+   midpoint. Blue = real, red = ai.
+
+   The obvious choice is green/red, and it is the wrong one: that is the
+   classic protanopia/deuteranopia confusion pair, so ~8% of men would see two
+   near-identical bars. Blue/red measures CVD deltaE 21.6 (light) / 19.2 (dark)
+   against a >=8 target -- separable under every simulated colour deficiency.
+   Colour is still never the only channel here: the verdict is spelled out in
+   words and the exact probability is printed as text.
+--------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+  --surface:      #fcfcfb;
+  --plane:        #f9f9f7;
+  --ink:          #0b0b0b;
+  --ink-2:        #52514e;
+  --ink-muted:    #898781;
+  --hairline:     #e1e0d9;
+  --ring:         rgba(11,11,11,.10);
+  --real:         #2a78d6;
+  --ai:           #e34948;
+  --track:        #f0efec;
+  --warn-bg:      #fab2191f;
+  --warn-ink:     #8a6100;
+  --radius:       12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface:   #1a1a19;
+    --plane:     #0d0d0d;
+    --ink:       #fff;
+    --ink-2:     #c3c2b7;
+    --ink-muted: #898781;
+    --hairline:  #2c2c2a;
+    --ring:      rgba(255,255,255,.10);
+    --real:      #3987e5;
+    --ai:        #e66767;
+    --track:     #383835;
+    --warn-bg:   #fab2191a;
+    --warn-ink:  #fab219;
   }
-  h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
-  .sub { color: var(--dim); margin: 0 0 1.75rem; font-size: .9rem; }
-  #drop {
-    border: 2px dashed var(--line); border-radius: 10px; padding: 2.25rem 1rem;
-    text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
-  }
-  #drop:hover, #drop.over { border-color: #6b9bd2; background: #6b9bd216; }
-  #drop input { display: none; }
-  .controls { display: flex; align-items: center; gap: .75rem; margin: 1.25rem 0; font-size: .9rem; }
-  .controls input[type=range] { flex: 1; }
-  #preview { max-width: 224px; max-height: 224px; border-radius: 8px; display: block;
-             margin: 1.5rem auto 0; image-rendering: pixelated; border: 1px solid var(--line); }
-  #result { margin-top: 1.5rem; padding: 1.1rem 1.25rem; border-radius: 10px;
-            border: 1px solid var(--line); display: none; }
-  #result.show { display: block; }
-  .verdict { font-size: 1.5rem; font-weight: 650; letter-spacing: -.01em; }
-  .verdict.ai { color: #d1483f; } .verdict.real { color: #2e8b57; }
-  .bar { height: 7px; border-radius: 4px; background: var(--line); overflow: hidden; margin: .8rem 0 .55rem; }
-  .bar > i { display: block; height: 100%; background: currentColor; transition: width .3s; }
-  .meta { color: var(--dim); font-size: .82rem; }
-  .err { color: #d1483f; }
-  code { font-size: .85em; background: var(--line); padding: .1em .35em; border-radius: 3px; }
+}
+
+* { box-sizing: border-box; }
+button { -webkit-user-select: none; user-select: none; }
+body {
+  margin: 0;
+  padding: 2.5rem 1.25rem 4rem;
+  background: var(--plane);
+  color: var(--ink);
+  font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.wrap { max-width: 46rem; margin: 0 auto; }
+
+header { margin-bottom: 1.75rem; }
+h1 { font-size: 1.4rem; font-weight: 650; letter-spacing: -.015em; margin: 0 0 .3rem; }
+.tagline { color: var(--ink-2); margin: 0; font-size: .92rem; }
+.tagline a { color: inherit; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--ring);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+}
+.card + .card { margin-top: 1rem; }
+
+/* ------------------------------------------------------------ drop zone -- */
+#drop {
+  display: block; width: 100%;
+  border: 1.5px dashed var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 2.5rem 1rem;
+  text-align: center;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color .15s, background .15s;
+}
+#drop:hover, #drop.over { border-color: var(--real); background: color-mix(in srgb, var(--real) 6%, var(--surface)); }
+#drop:focus-visible { outline: 2px solid var(--real); outline-offset: 2px; }
+#drop strong { display: block; font-size: 1rem; margin-bottom: .2rem; }
+#drop span { color: var(--ink-muted); font-size: .85rem; }
+kbd {
+  font: inherit; font-size: .8em;
+  border: 1px solid var(--hairline); border-bottom-width: 2px;
+  border-radius: 4px; padding: .05em .35em; background: var(--plane);
+}
+#file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+.samples { display: flex; align-items: center; gap: .5rem; margin-top: .85rem; flex-wrap: wrap;
+           font-size: .85rem; color: var(--ink-muted); }
+.chip {
+  display: inline-flex; align-items: center; gap: .4rem;
+  border: 1px solid var(--hairline); border-radius: 999px;
+  background: var(--surface); color: var(--ink-2);
+  padding: .25rem .7rem; font: inherit; font-size: .85rem; cursor: pointer;
+}
+.chip:hover { border-color: var(--ink-muted); color: var(--ink); }
+.chip:focus-visible { outline: 2px solid var(--real); outline-offset: 2px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot.real { background: var(--real); } .dot.ai { background: var(--ai); }
+.dot.split { background: linear-gradient(90deg, var(--real) 50%, var(--ai) 50%); }
+
+/* -------------------------------------------------------------- results -- */
+#panel[hidden] { display: none; }
+
+.previews { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.35rem; }
+.shot { flex: 0 0 auto; }
+.shot figcaption { font-size: .75rem; color: var(--ink-muted); margin-top: .4rem; text-align: center; }
+.shot img, .shot canvas {
+  display: block; width: 140px; height: 140px; object-fit: contain;
+  background: var(--plane); border: 1px solid var(--ring); border-radius: 8px;
+  image-rendering: pixelated;
+}
+
+.verdict-row { display: flex; align-items: baseline; gap: .6rem; margin-bottom: .1rem; }
+/* Hero figure: >=48px, same sans as everything else, exactly one per view.
+   The text stays in primary ink -- the coloured dot beside it carries identity,
+   so the verdict never depends on colour alone and never sits below contrast. */
+.verdict { font-size: 2.1rem; font-weight: 650; letter-spacing: -.02em; line-height: 1.1; }
+.verdict-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; align-self: center; }
+.subline { color: var(--ink-2); font-size: .9rem; margin-bottom: 1.25rem; }
+
+/* -- diverging meter --------------------------------------------------------
+   Anchored at the decision threshold, not at zero. The bar grows left (blue)
+   when the model says real and right (red) when it says ai, and its length is
+   the distance past the boundary. That makes the threshold visible as a thing
+   the prediction is measured against, which a plain 0-100% bar hides. */
+.meter { margin-bottom: 1.1rem; }
+.meter-scale { position: relative; height: 20px; background: var(--track); border-radius: 4px; }
+.meter-fill  { position: absolute; top: 0; height: 100%; background: var(--real); }
+.meter-fill.left  { border-radius: 4px 0 0 4px; }   /* rounded data-end, square at the anchor */
+.meter-fill.right { border-radius: 0 4px 4px 0; background: var(--ai); }
+.meter-thresh {
+  position: absolute; top: -4px; bottom: -4px; width: 2px;
+  background: var(--ink); border-radius: 1px;
+}
+.meter-thresh::after {
+  content: attr(data-label);
+  position: absolute; top: -1.25rem; left: 50%; transform: translateX(-50%);
+  font-size: .7rem; color: var(--ink-2); white-space: nowrap;
+}
+.meter-axis {
+  display: flex; justify-content: space-between;
+  font-size: .75rem; color: var(--ink-muted); margin-top: .4rem;
+}
+.meter-head { display: flex; justify-content: space-between; font-size: .75rem;
+              color: var(--ink-muted); margin-bottom: 1.4rem; }
+
+/* Numbers as text: this is the table view. Every value the meter encodes is
+   also printed, so nothing is gated behind reading a colour or a length. */
+.facts { border-top: 1px solid var(--hairline); padding-top: .9rem;
+         display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: .8rem 1rem; }
+.fact dt { font-size: .72rem; color: var(--ink-muted); text-transform: uppercase; letter-spacing: .04em; }
+.fact dd { margin: .15rem 0 0; font-size: .95rem; font-variant-numeric: tabular-nums; }
+
+.notice {
+  margin-top: 1rem; padding: .7rem .85rem; border-radius: 8px;
+  background: var(--warn-bg); color: var(--warn-ink);
+  font-size: .84rem; line-height: 1.5;
+}
+.notice strong { font-weight: 620; }
+.error { color: var(--ai); }
+
+/* ------------------------------------------------------------- controls -- */
+.controls { display: flex; align-items: center; gap: .85rem; font-size: .88rem; color: var(--ink-2); }
+.controls input[type=range] { flex: 1; accent-color: var(--real); min-width: 8rem; }
+.controls output { font-variant-numeric: tabular-nums; min-width: 2.6rem; text-align: right; color: var(--ink); }
+.controls-note { font-size: .8rem; color: var(--ink-muted); margin: .55rem 0 0; }
+
+.spinner {
+  width: 15px; height: 15px; border: 2px solid var(--hairline);
+  border-top-color: var(--real); border-radius: 50%;
+  display: inline-block; vertical-align: -2px; animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
+
+footer { margin-top: 1.75rem; font-size: .82rem; color: var(--ink-muted); }
+footer a { color: var(--ink-2); }
 </style>
 </head>
 <body>
+<div class="wrap">
 
-<h1>AI Image Detector</h1>
-<p class="sub">Frozen CLIP ViT-B/32 + trained MLP head. 95.4% on held-out CIFAKE
-&mdash; see the README for why that number overstates real-world accuracy.</p>
+<header>
+  <h1>AI Image Detector</h1>
+  <p class="tagline">
+    Frozen CLIP ViT-B/32 + a trained classification head.
+    95.4% on held-out CIFAKE &mdash; <a href="#caveat">that number is optimistic</a>.
+  </p>
+</header>
 
-<label id="drop">
-  <input type="file" id="file" accept="image/*">
-  <strong>Choose an image</strong> or drop one here
-</label>
+<button type="button" id="drop">
+  <strong>Drop an image, click to browse, or paste</strong>
+  <span>PNG, JPEG or WebP &middot; up to 10&nbsp;MB &middot; <kbd>Ctrl</kbd>+<kbd>V</kbd> works anywhere on the page</span>
+</button>
+<input type="file" id="file" accept="image/*">
 
-<div class="controls">
-  <label for="thr">threshold</label>
-  <input type="range" id="thr" min="0.05" max="0.95" step="0.05" value="0.5">
-  <code id="thrval">0.50</code>
+<div class="samples">
+  <span>Or try a sample from the test set:</span>
+  <button type="button" class="chip" data-sample="samples/real.png"><i class="dot real"></i>real photo</button>
+  <button type="button" class="chip" data-sample="samples/ai.png"><i class="dot ai"></i>AI-generated</button>
+  <button type="button" class="chip" data-sample="samples/borderline.png"><i class="dot split"></i>borderline</button>
 </div>
 
-<img id="preview" hidden alt="selected image preview">
+<section id="panel" class="card" hidden aria-live="polite"></section>
 
-<div id="result"></div>
+<section class="card">
+  <div class="controls">
+    <label for="thr">Decision threshold</label>
+    <input type="range" id="thr" min="0.01" max="0.99" step="0.01" value="0.5">
+    <output id="thrval" for="thr">0.50</output>
+  </div>
+  <p class="controls-note">
+    The cutoff applied to p(ai). It is a product decision, not a model property:
+    at 0.99 the model is right 99.9% of the times it says &ldquo;AI&rdquo;, but misses
+    27% of AI images. It only changes the answer for images near the boundary &mdash;
+    load the <strong>borderline</strong> sample (p(ai) 0.499, actually a real photo)
+    and drag across 0.5 to watch the verdict flip.
+  </p>
+</section>
+
+<footer id="caveat">
+  <p>
+    Trained on CIFAKE: 32&times;32 images, all fakes from Stable&nbsp;Diffusion&nbsp;1.4.
+    Everything is upscaled 7&times; before the model sees it, which destroys the
+    high-frequency artifacts real detectors rely on. Expect materially worse
+    results on high-resolution images from modern generators.
+    <a href="/docs">API docs</a>
+  </p>
+</footer>
+
+</div>
 
 <script>
-// When the page is served by FastAPI itself, the API is same-origin and a
-// relative path works. Opened straight off disk (file://) there is no origin
-// to be relative to, so fall back to the dev server -- which is exactly the
-// case that needs CORS enabled on the API.
+// Served by FastAPI itself in production, so the API is same-origin and a
+// relative path works. Opened straight off disk (file://) there is no origin to
+// be relative to -- and that is exactly the case CORS exists for.
 const API = location.protocol === 'file:' ? 'http://127.0.0.1:8000' : '';
 
-const fileInput = document.getElementById('file');
-const drop      = document.getElementById('drop');
-const preview   = document.getElementById('preview');
-const result    = document.getElementById('result');
-const thr       = document.getElementById('thr');
-const thrval    = document.getElementById('thrval');
+const CLIP_INPUT = 224;   // what the backbone consumes
+const TRAINED_ON = 32;    // native CIFAKE resolution
 
-let lastFile = null;
+const els = {
+  drop:   document.getElementById('drop'),
+  file:   document.getElementById('file'),
+  panel:  document.getElementById('panel'),
+  thr:    document.getElementById('thr'),
+  thrval: document.getElementById('thrval'),
+};
 
-thr.addEventListener('input', () => {
-  thrval.textContent = Number(thr.value).toFixed(2);
-  if (lastFile) classify(lastFile);   // re-score instantly on threshold change
+let current = null;   // { file, width, height }
+
+/* ------------------------------------------------------------- input -- */
+
+els.drop.addEventListener('click', () => els.file.click());
+els.file.addEventListener('change', e => e.target.files[0] && accept(e.target.files[0]));
+
+['dragenter', 'dragover'].forEach(ev =>
+  els.drop.addEventListener(ev, e => { e.preventDefault(); els.drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev =>
+  els.drop.addEventListener(ev, e => { e.preventDefault(); els.drop.classList.remove('over'); }));
+els.drop.addEventListener('drop', e => {
+  const f = [...e.dataTransfer.files].find(f => f.type.startsWith('image/'));
+  if (f) accept(f);
 });
 
-fileInput.addEventListener('change', e => {
-  if (e.target.files[0]) handle(e.target.files[0]);
+// Paste anywhere on the page. Screenshots land in the clipboard as image data
+// with no filename, which is the single most common way someone tries an image
+// detector -- making them save to disk first is pure friction.
+addEventListener('paste', e => {
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+  if (!item) return;
+  const blob = item.getAsFile();
+  if (blob) accept(new File([blob], 'pasted-image.png', { type: blob.type }));
 });
 
-['dragenter','dragover'].forEach(ev =>
-  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
-['dragleave','drop'].forEach(ev =>
-  drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
-drop.addEventListener('drop', e => {
-  const f = e.dataTransfer.files[0];
-  if (f) handle(f);
+document.querySelectorAll('[data-sample]').forEach(chip =>
+  chip.addEventListener('click', async () => {
+    const res = await fetch(chip.dataset.sample);
+    const blob = await res.blob();
+    accept(new File([blob], chip.dataset.sample.split('/').pop(), { type: 'image/png' }));
+  }));
+
+els.thr.addEventListener('input', () => {
+  els.thrval.value = Number(els.thr.value).toFixed(2);
+  // Re-score rather than re-deciding locally. The server owns the threshold
+  // logic; duplicating the comparison in JS is how a UI drifts from its API.
+  if (current) classify();
 });
 
-function handle(file) {
-  lastFile = file;
-  preview.src = URL.createObjectURL(file);
-  preview.hidden = false;
-  classify(file);
+/* ---------------------------------------------------------- pipeline -- */
+
+async function accept(file) {
+  const bitmap = await createImageBitmap(file).catch(() => null);
+  if (!bitmap) {
+    render({ error: 'That file could not be decoded as an image.' });
+    return;
+  }
+  current = { file, width: bitmap.width, height: bitmap.height, bitmap };
+  classify();
 }
 
-async function classify(file) {
-  result.className = 'show';
-  result.innerHTML = '<span class="meta">classifying&hellip;</span>';
+async function classify() {
+  const { file } = current;
+  els.panel.hidden = false;
+  els.panel.innerHTML = `<p class="subline"><i class="spinner"></i> Classifying&hellip;</p>`;
 
-  // FormData produces a multipart/form-data body -- the same encoding an HTML
-  // <form enctype="multipart/form-data"> sends, and what FastAPI's UploadFile
-  // expects. Do NOT set Content-Type manually: the browser has to append the
-  // multipart boundary token, and hardcoding the header strips it, which makes
-  // the server fail to parse the body.
+  // FormData produces a multipart/form-data body -- what FastAPI's UploadFile
+  // expects. Never set Content-Type by hand: the browser must append the
+  // boundary token, and hardcoding the header strips it.
   const body = new FormData();
   body.append('file', file);
 
   try {
-    const res = await fetch(`${API}/predict?threshold=${thr.value}`, { method: 'POST', body });
-    if (!res.ok) {
-      const detail = await res.json().catch(() => ({}));
-      throw new Error(detail.detail || `HTTP ${res.status}`);
-    }
-    render(await res.json());
+    const res = await fetch(`${API}/predict?threshold=${els.thr.value}`, { method: 'POST', body });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    render(data);
   } catch (err) {
-    result.innerHTML = `<span class="err"><strong>Failed.</strong> ${err.message}</span>
-      <div class="meta" style="margin-top:.5rem">Is the API running on
-      <code>${API || location.origin}</code>?</div>`;
+    render({ error: err.message });
   }
 }
 
+/* ------------------------------------------------------------ render -- */
+
 function render(r) {
-  const pct = (r.confidence * 100).toFixed(1);
-  const cls = r.label === 'ai' ? 'ai' : 'real';
-  const text = r.label === 'ai' ? 'AI-generated' : 'Real photograph';
-  result.innerHTML = `
-    <div class="verdict ${cls}">${text}</div>
-    <div class="bar ${cls}" style="color:${cls === 'ai' ? '#d1483f' : '#2e8b57'}">
-      <i style="width:${pct}%"></i>
+  if (r.error) {
+    els.panel.innerHTML =
+      `<p class="subline error"><strong>Failed.</strong> ${escapeHtml(r.error)}</p>
+       <p class="subline">Is the API running on <code>${API || location.origin}</code>?</p>`;
+    return;
+  }
+
+  const isAi   = r.label === 'ai';
+  const pct    = fmtConfidence(r.confidence);
+  const thresh = r.threshold;
+
+  // Bar anchored at the threshold; length is the distance past it, normalised
+  // by the width of the arm it sits in so both sides use the full track.
+  const anchor = thresh * 100;
+  const span   = isAi
+    ? (r.p_ai - thresh) / (1 - thresh) * (100 - anchor)
+    : (thresh - r.p_ai) / thresh * anchor;
+
+  const fill = isAi
+    ? `left:${anchor}%; width:${span}%`
+    : `left:${anchor - span}%; width:${span}%`;
+
+  els.panel.innerHTML = `
+    <div class="previews">
+      <figure class="shot">
+        <img src="${URL.createObjectURL(current.file)}" alt="the image you submitted">
+        <figcaption>your image &middot; ${current.width}&times;${current.height}</figcaption>
+      </figure>
+      <figure class="shot">
+        <canvas id="asseen" width="${CLIP_INPUT}" height="${CLIP_INPUT}"></canvas>
+        <figcaption>what the model sees &middot; ${CLIP_INPUT}&times;${CLIP_INPUT}</figcaption>
+      </figure>
     </div>
-    <div class="meta">
-      ${pct}% confident &middot; p(ai) = ${r.p_ai.toFixed(4)}
-      &middot; threshold ${r.threshold} &middot; ${r.inference_ms} ms
-    </div>`;
+
+    <div class="verdict-row">
+      <i class="verdict-dot" style="background:var(--${isAi ? 'ai' : 'real'})"></i>
+      <span class="verdict">${isAi ? 'AI-generated' : 'Real photograph'}</span>
+    </div>
+    <p class="subline">${describe(r, isAi, pct)}</p>
+
+    <div class="meter">
+      <div class="meter-head"><span>&larr; more likely real</span><span>more likely AI &rarr;</span></div>
+      <div class="meter-scale">
+        <div class="meter-fill ${isAi ? 'right' : 'left'}" style="${fill}"></div>
+        <div class="meter-thresh" style="left:${anchor}%" data-label="threshold ${thresh}"></div>
+      </div>
+      <div class="meter-axis"><span>p(ai) 0</span><span>1</span></div>
+    </div>
+
+    <dl class="facts">
+      <div class="fact"><dt>p(ai)</dt><dd>${r.p_ai.toFixed(4)}</dd></div>
+      <div class="fact"><dt>confidence</dt><dd>${pct}%</dd></div>
+      <div class="fact"><dt>inference</dt><dd>${r.inference_ms} ms</dd></div>
+      <div class="fact"><dt>file</dt><dd>${escapeHtml(r.filename || '—')}</dd></div>
+    </dl>
+    ${distributionNotice()}`;
+
+  drawAsSeen();
+}
+
+/* Honesty affordance. The model was trained exclusively on 32x32 images
+   upscaled to 224. A 4000px photograph is far outside that distribution, and
+   the confidence score has no idea -- a calibrated 99% means "99% on data that
+   looks like training data". Saying so beside the number is the difference
+   between a demo and a misleading one. */
+function distributionNotice() {
+  const { width, height, file } = current;
+  const notes = [];
+
+  const scale = Math.max(width, height) / TRAINED_ON;
+  if (scale >= 4) {
+    notes.push(`This image is ${Math.round(scale)}&times; larger than the ${TRAINED_ON}&times;${TRAINED_ON}
+      images the model was trained on. Treat the confidence as unreliable &mdash;
+      it is well outside the training distribution.`);
+  }
+  const ratio = Math.max(width, height) / Math.min(width, height);
+  if (ratio >= 1.3) {
+    notes.push(`Non-square (${ratio.toFixed(1)}:1), so the centre crop discards the edges &mdash;
+      compare the two thumbnails above to see what was thrown away.`);
+  }
+  if (/jpe?g/i.test(file.type)) {
+    notes.push(`JPEG compression alters exactly the high-frequency detail this kind of
+      detector keys on.`);
+  }
+
+  return notes.length
+    ? `<p class="notice"><strong>Out-of-distribution.</strong> ${notes.join(' ')}</p>`
+    : '';
+}
+
+/* Replicate CLIP's preprocessing so you can see it: resize the shortest side to
+   224 preserving aspect, then centre-crop to 224x224. This is the same geometry
+   open_clip applies server-side, and it is the honest answer to "why did it get
+   my photo wrong" when the subject sat outside the crop. */
+function drawAsSeen() {
+  const canvas = document.getElementById('asseen');
+  if (!canvas || !current.bitmap) return;
+  const { bitmap } = current;
+
+  const scale = CLIP_INPUT / Math.min(bitmap.width, bitmap.height);
+  const w = bitmap.width * scale;
+  const h = bitmap.height * scale;
+
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bitmap, (CLIP_INPUT - w) / 2, (CLIP_INPUT - h) / 2, w, h);
+}
+
+/* "N% confident" is only true when the threshold is 0.5.
+   The API's `confidence` is P(predicted class). Move the threshold off 0.5 and
+   the model's own preference can disagree with the policy: at p(ai)=0.499 with
+   a 0.45 cutoff the label is "ai" while the model marginally favours "real",
+   so `confidence` comes back as 0.499 and rendering it as "49.9% confident"
+   states the opposite of the verdict printed directly above it.
+   Say what is actually happening instead -- it is also the clearest possible
+   demonstration of the threshold being a policy rather than a model property. */
+function describe(r, isAi, pct) {
+  const favours = r.p_ai >= 0.5 ? 'ai' : 'real';
+  const disagrees = favours !== r.label;
+
+  if (!disagrees) return `${pct}% confident at a threshold of ${r.threshold}`;
+
+  return `p(ai) is ${r.p_ai.toFixed(4)}, so the model marginally favours
+    <strong>${favours === 'ai' ? 'AI-generated' : 'real'}</strong> &mdash; but your threshold of
+    ${r.threshold} classifies it as <strong>${isAi ? 'AI-generated' : 'real'}</strong>.`;
+}
+
+/* Never print "100.0%".
+   A sigmoid cannot reach 1.0, so a model is never certain -- but at 4 decimal
+   places 0.9996 rounds to a flat 100.0%, which claims exactly the certainty the
+   rest of this page is careful to disclaim. Two decimals keeps the real value
+   visible, and the ">" form handles the case where float32 saturates. */
+function fmtConfidence(p) {
+  if (p >= 0.99995) return '&gt;99.99';
+  return (p * 100).toFixed(2);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 </script>
 </body>

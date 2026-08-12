@@ -115,8 +115,15 @@ class Detector:
             results.append(
                 {
                     "label": self.class_names[1] if is_ai else self.class_names[0],
-                    # Confidence in the answer actually given, not P(ai). A
-                    # confident "real" should read 0.98, not 0.02.
+                    # P(predicted class) -- confidence in the answer actually
+                    # given, not P(ai). A confident "real" reads 0.98, not 0.02.
+                    #
+                    # Note this is only >= 0.5 when threshold == 0.5. With a
+                    # threshold of 0.45 and p_ai = 0.499 the label is "ai" while
+                    # this value is 0.499, because the model marginally favours
+                    # "real" and the *policy* overrode it. That is the correct
+                    # number; it just means a caller cannot render it as
+                    # "N% confident" without checking the threshold first.
                     "confidence": p_ai if is_ai else 1.0 - p_ai,
                     "p_ai": p_ai,
                     "threshold": threshold,
