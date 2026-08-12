@@ -1,8 +1,10 @@
 # AI-Generated Image Detector
 
+**Live: https://zeroai.fly.dev**
+
 Upload an image, get `real` or `ai` plus a confidence score. A frozen CLIP
 backbone with a small trained classification head, served by FastAPI, packaged
-in Docker, gated by GitHub Actions.
+in Docker, deployed to Fly.io, gated by GitHub Actions.
 
 **95.4% accuracy on held-out CIFAKE.** Please read
 [Known limitations](#known-limitations) before believing that number means what
@@ -75,9 +77,15 @@ cached — turning head training into a 60-second tabular problem:
 | Expected calibration error | 0.0141 |
 | False positives / false negatives | 75 / 109 |
 | Docker image | 2.35 GB |
-| Container RSS | 729 MB |
-| Cold start to healthy | ~24 s |
-| Inference latency (median, containerised) | 112 ms |
+| Peak memory at startup | 1,507 MB |
+| Steady-state memory | 1,283 MB |
+| Cold start to healthy | ~20 s |
+| Inference latency (median, local container) | 112 ms |
+
+Peak is the number that sizes a machine — the first deploy was OOM-killed on a
+1 GB VM despite `docker stats` reporting 706 MB, because `docker stats`
+subtracts page cache and the OOM killer does not. See
+[`docs/05-deploy-ci.md`](docs/05-deploy-ci.md) §0.
 
 ---
 
@@ -171,9 +179,9 @@ stop it. A webhook returns as soon as the build is *queued*. `flyctl deploy`
 blocks until health checks pass, so a green pipeline means the new version is
 actually serving.
 
-> **Not yet deployed.** Everything up to and including the container is built
-> and verified locally. Deploying needs `flyctl launch` once to create the app
-> and a `FLY_API_TOKEN` repository secret.
+**Live at https://zeroai.fly.dev** — Fly app `zeroai`, region `syd`,
+shared-cpu-1x / 2 GB, scale-to-zero. The first request after an idle period
+wakes a suspended machine and takes a few seconds; subsequent ones are fast.
 
 ---
 

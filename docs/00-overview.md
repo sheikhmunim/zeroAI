@@ -88,21 +88,30 @@ so both invocations behave identically.
 at all. Deploy was skipped in run 1 only because the `needs:` gate blocked it
 behind the failing test job.
 
-### Remaining to go live
+### Live
 
-1. `flyctl auth login` (Fly requires a payment method on file)
-2. `flyctl launch --no-deploy` — **say yes to the existing `fly.toml`**; it
-   carries the 1 GB sizing, the 90 s health-check grace period and
-   `TORCH_THREADS=1`, all of which came from measurement. App names are
-   globally unique, so pick one and commit it back to `fly.toml` (CI reads the
-   verify URL from there).
-3. `flyctl deploy --remote-only` — by hand, watched, before CI ever does it
-4. `flyctl auth token` → GitHub repository secret `FLY_API_TOKEN`
-5. Push a small change and watch the full pipeline deploy unattended
-6. **`flyctl apps destroy <app>` when finished.** Fly bills hourly; a few days
-   costs cents, leaving it up indefinitely is ~$5.70/mo.
+**https://zeroai.fly.dev** — Fly app `zeroai`, region `syd`, shared-cpu-1x /
+2 GB, scale-to-zero. Push to `main` deploys automatically:
 
-Nothing is currently billing. Nothing is time-sensitive.
+```
+lint ─┐
+test ─┼─→ deploy ─→ flyctl deploy ─→ verify production
+smoke ┘
+```
+
+Four more failures happened between "configured" and "live", all written up in
+[`05-deploy-ci.md`](05-deploy-ci.md) §0 — an OOM kill from sizing the machine
+off `docker stats` (which hides page cache), a CI check that couldn't catch it
+because `docker --memory` grants swap you didn't ask for, `flyctl launch`
+deleting every comment in `fly.toml`, and a `cut`-based TOML parse that broke
+when the file's quote style changed.
+
+### Only step left
+
+**`flyctl apps destroy zeroai` when you're finished with it.** Fly bills
+hourly, and the account is on trial credit with no payment method — so a few
+days costs a fraction of the trial and the worst case is the app stopping, not
+a bill. Leave it up as long as it's useful.
 
 ## Note on how stages 1d–6 were built
 

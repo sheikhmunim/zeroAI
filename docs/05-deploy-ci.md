@@ -2,9 +2,94 @@
 
 Files: `fly.toml`, `.github/workflows/ci.yml`, `scripts/smoke_test.py`
 
-> **Status: configured and locally verified, not deployed.** Everything through
-> the container is built and tested. Going live needs `flyctl launch` once and a
-> `FLY_API_TOKEN` repository secret.
+> **Status: live.** https://zeroai.fly.dev — Fly app `zeroai`, region `syd`,
+> shared-cpu-1x / 2 GB. Deploys automatically on push to `main`.
+
+---
+
+## 0. What actually went wrong (read this first)
+
+Four things broke between "configured" and "live". Every one of them is a
+category of mistake worth recognising again.
+
+### The machine OOM-killed in a restart loop
+
+First deploy, 1 GB machine:
+
+```
+Out of memory: Killed process 642 (uvicorn)
+total-vm:1361188kB, anon-rss:874836kB
+```
+
+The symptom was misleading. `flyctl` reported *"The app is not listening on the
+expected address"* and Fly's dashboard suggested "Machines Restarting a Lot —
+this is an issue with your application code." Both are true and neither is the
+cause. The app was fine; the machine was too small.
+
+**Measured afterwards on the real image, via cgroup counters:**
+
+| | |
+|---|---|
+| peak during startup | **1,507 MB** ← what sizes a machine |
+| steady state | 1,283 MB |
+| what `docker stats` reported | **706 MB** ← what it was wrongly sized on |
+
+Two independent errors produced that gap:
+
+**Peak sizes a machine, not steady state.** `create_model_and_transforms()`
+instantiates the *entire* CLIP model — both towers, ~605 MB of fp32 — and
+`Detector.__init__` discards the text tower only afterwards. So the
+optimisation in §7 of `02-api.md` that cut steady state from 1,696 MB to
+729 MB bought **zero** startup headroom. Optimising the number you happen to be
+measuring is not the same as optimising the number that matters.
+
+**`docker stats` subtracts page cache; the OOM killer does not.** The ~577 MB
+difference between 706 and 1,283 is almost exactly the CLIP checkpoint file
+sitting in page cache. Read `/sys/fs/cgroup/memory.peak` instead — it is the
+high-water mark and it counts everything.
+
+### The CI smoke test could not have caught it
+
+`docker run --memory=1g` **defaults swap to twice the limit**, so that
+container had 1 GB RAM plus 1 GB swap. Fly runs Firecracker with no swap at
+all. The check was testing double the real budget and reporting green.
+
+Even with `--memory-swap=1g` it still passed locally, because a full Linux host
+can evict page cache under pressure. Firecracker had 875 MB of *anonymous*
+memory — model tensors, not reclaimable — and nothing left to evict.
+
+> A container passing under `--memory=Xg` does not prove it fits in an X GB VM.
+
+Now runs `--memory=2g --memory-swap=2g` to disable swap and mirror production.
+
+### `flyctl launch` deleted every comment in fly.toml
+
+It preserved all functional settings from the existing file and stripped all 64
+lines of comments — the only record of *why* the memory sizing, thread count
+and grace period are what they are. Restored by hand. Git was the backup:
+`git diff fly.toml` showed precisely what was lost.
+
+Also worth knowing: **Fly caps an HTTP service check's `grace_period` at 1
+minute** and silently lowers anything larger, warning as it does so.
+
+### The deploy succeeded and the verification crashed
+
+```
+verifying https://app = 'zeroai'.fly.dev
+http.client.InvalidURL: URL can't contain control characters
+```
+
+`cut -d'"' -f2` splits on double quotes. That worked when the extraction was
+written — and then `flyctl launch` rewrote `fly.toml` with **single** quotes, so
+`cut` found no delimiter and returned the whole line. Parsing a structured
+format with shell string-slicing works right up until the formatting changes,
+and then fails far from the cause. Replaced with `tomllib`, in the stdlib since
+Python 3.11.
+
+**The useful distinction this surfaced:** a failed *deploy* means nothing
+shipped. A failed *verify* means something did ship and you don't know if it's
+good. Those demand different reactions, which is exactly why verification is a
+separate step rather than trusting `flyctl deploy`'s exit code.
 
 ---
 
