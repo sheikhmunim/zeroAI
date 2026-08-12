@@ -239,6 +239,7 @@ decision is written up rather than left in commit messages:
 - [`docs/03-frontend.md`](docs/03-frontend.md) — CORS, multipart uploads
 - [`docs/04-docker.md`](docs/04-docker.md) — base images, layer caching, the 1.6 GB mistake
 - [`docs/05-deploy-ci.md`](docs/05-deploy-ci.md) — platform tradeoffs, workflow structure
+- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — **deployment runbook**: setup, deploy, operate, troubleshoot, tear down
 
 ## Layout
 

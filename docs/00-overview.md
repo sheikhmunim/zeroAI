@@ -61,6 +61,8 @@ Detailed notes per stage:
 - [`03-frontend.md`](03-frontend.md) — Stage 3: CORS, multipart uploads
 - [`04-docker.md`](04-docker.md) — Stage 4: base images, layers, the 1.6 GB mistake
 - [`05-deploy-ci.md`](05-deploy-ci.md) — Stages 5–6: platform tradeoffs, workflow structure
+- [`DEPLOYMENT.md`](DEPLOYMENT.md) — **the runbook**: deploy, operate, debug, and
+  tear down, start to finish. The *how*, where `05` is the *why*.
 
 ## Deployment status
 
