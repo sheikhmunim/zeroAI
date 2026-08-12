@@ -153,8 +153,18 @@ jobs:
       # names are globally unique, so yours will not be the one committed here
       # -- and a hardcoded URL would either 404 forever or, worse, smoke-test
       # somebody else's app and report green.
+      # Parsed with a real TOML parser, not shell string-slicing.
+      #
+      # This previously used `cut -d'"' -f2`, which splits on double quotes --
+      # and then `flyctl launch` rewrote fly.toml using single quotes, so `cut`
+      # found no delimiter and returned the whole line. The job dutifully tried
+      # to reach `https://app = 'zeroai'.fly.dev`.
+      #
+      # tomllib is in the stdlib from Python 3.11, so this costs nothing and is
+      # immune to quote style, spacing and comments.
       - name: Verify production
         run: |
-          APP=$(grep -m1 '^app *=' fly.toml | cut -d'"' -f2)
+          APP=$(python -c "import tomllib;print(tomllib.load(open('fly.toml','rb'))['app'])")
+          if [ -z "$APP" ]; then echo "could not read app name from fly.toml"; exit 1; fi
           echo "verifying https://$APP.fly.dev"
           python scripts/smoke_test.py "https://$APP.fly.dev" --timeout 180
