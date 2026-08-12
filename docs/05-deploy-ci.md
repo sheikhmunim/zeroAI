@@ -25,15 +25,22 @@ inference     ~112 ms median (multi-threaded)
 | Render Standard | Yes — 2 GB | ~$25/mo | Nicest git integration of the three. Wrong price for a demo |
 | **Modal** | Yes | free credits | Serverless, scale-to-zero, best fit for bursty traffic. But Python-native: you define the image in a Python DSL, so **Stage 4's Dockerfile stops being what gets deployed** |
 | **Fly.io** | Yes — 1 GB | ~$5.70/mo | Deploys this exact Dockerfile unmodified. Scale-to-zero. `flyctl deploy` is an explicit, legible step |
-| HuggingFace Spaces | Yes — 16 GB | **free** | Genuinely free and fits comfortably. A model-demo host, not general infrastructure |
+| HuggingFace Spaces (Docker) | Yes — 16 GB | **$9/mo** | The *hardware* tier (CPU Basic, 2 vCPU / 16 GB) is free, but **creating a Docker Space requires a PRO account**. More expensive than Fly |
+| HuggingFace Spaces (Gradio/ZeroGPU) | Yes | free, 2 max | Free only for **Gradio** Spaces — means discarding the FastAPI backend, which this project's stack spec explicitly rejected |
+| HuggingFace Spaces (Static) | n/a | free | Static files only. Cannot run a Python backend |
+| Google Cloud Run | Yes | ~free at low traffic | Scales to zero, deploys a Dockerfile, generous free tier. Cold start is the catch: pulling a 2.35 GB image from cold is far slower than Fly's `suspend` |
 
-**Chosen: Fly.io.** It runs the artifact we actually built, the memory fits with
-headroom, and the deploy is a command you can read and run yourself rather than
-dashboard magic.
+**Chosen: Fly.io** — the cheapest option that keeps the architecture intact. It
+runs the artifact we actually built, the memory fits with headroom, and the
+deploy is a command you can read and run yourself rather than dashboard magic.
 
-Worth being explicit: **HF Spaces is the better answer if the only goal is a
-free live demo.** Fly is chosen because the point is learning deployment, and
-Spaces hides most of it.
+> **Correction.** An earlier version of this file (and the `fly.toml` header)
+> claimed HF Spaces was "genuinely free and would fit comfortably." That was
+> wrong: free personal accounts can no longer create Docker Spaces at all. The
+> free-tier *hardware* is real; the free-tier *account* cannot use it for
+> Docker. Verified against `huggingface.co/docs/hub/spaces-overview`,
+> August 2026 — worth re-checking, since this is exactly the kind of policy
+> that moves.
 
 The 512 MB finding is the whole reason Stage 1 measured CPU throughput instead
 of using the GPU. Without a real footprint number, the platform choice would

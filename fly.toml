@@ -15,14 +15,19 @@
 #               define the image in a Python DSL rather than deploying the
 #               Dockerfile we just wrote. Choosing it means Stage 4 stops being
 #               the thing that gets deployed.
+#   HF Spaces   The CPU Basic tier (2 vCPU / 16 GB) is free hardware, but a
+#               free personal account cannot create a Docker Space at all --
+#               that needs PRO at $9/mo, so it costs MORE than Fly. The free
+#               route is a Gradio Space on ZeroGPU, which means discarding the
+#               FastAPI backend this project exists to build.
+#   Cloud Run   Scales to zero, takes a Dockerfile, free tier likely covers a
+#               demo. Cold-pulling a 2.35 GB image is much slower than Fly's
+#               memory-snapshot resume.
 #   Fly.io      Deploys this exact Dockerfile unmodified. 1 GB shared-cpu-1x
 #               (~$5.70/mo) fits 729 MB with headroom. Scale-to-zero drops idle
 #               cost to near nothing. `flyctl deploy` is an explicit step in the
 #               workflow, so the deploy is legible instead of magic.  <- chosen
-#
-# Also worth knowing: HuggingFace Spaces' free CPU tier is 2 vCPU / 16 GB and
-# accepts a Dockerfile. Genuinely free and would fit comfortably. It is a worse
-# teaching example -- it is a model-demo host, not general infrastructure.
+#               Cheapest option that keeps the architecture intact.
 
 app = "ai-image-detector"
 primary_region = "iad"

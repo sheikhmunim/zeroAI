@@ -137,5 +137,13 @@ jobs:
 
       # Deploying and then verifying against the real URL is the difference
       # between "the deploy command exited 0" and "production works".
+      #
+      # The hostname is read out of fly.toml rather than hardcoded. Fly app
+      # names are globally unique, so yours will not be the one committed here
+      # -- and a hardcoded URL would either 404 forever or, worse, smoke-test
+      # somebody else's app and report green.
       - name: Verify production
-        run: python scripts/smoke_test.py https://ai-image-detector.fly.dev --timeout 120
+        run: |
+          APP=$(grep -m1 '^app *=' fly.toml | cut -d'"' -f2)
+          echo "verifying https://$APP.fly.dev"
+          python scripts/smoke_test.py "https://$APP.fly.dev" --timeout 180
