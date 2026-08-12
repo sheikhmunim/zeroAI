@@ -62,13 +62,47 @@ Detailed notes per stage:
 - [`04-docker.md`](04-docker.md) — Stage 4: base images, layers, the 1.6 GB mistake
 - [`05-deploy-ci.md`](05-deploy-ci.md) — Stages 5–6: platform tradeoffs, workflow structure
 
-## Remaining to go live
+## Deployment status
 
-1. `flyctl launch --no-deploy` then `flyctl deploy` — do the first one by hand
-2. Add `FLY_API_TOKEN` as a GitHub repository secret
-3. Push to a GitHub remote; CI has never executed, so expect to iterate on it
-4. Update the `Verify production` URL in `.github/workflows/ci.yml` if the app
-   name differs from `ai-image-detector`
+Repo is live at **https://github.com/sheikhmunim/zeroAI** (branch `main` —
+renamed from `master`, because `ci.yml` triggers on `main` and would otherwise
+sit silently doing nothing).
+
+CI has run twice:
+
+| run | lint | test | smoke | deploy | |
+|---|---|---|---|---|---|
+| 1 | ✅ | ❌ | ✅ | skipped | `ModuleNotFoundError` — see below |
+| 2 | ✅ | ✅ | ✅ | ❌ | expected: Fly not configured yet |
+
+**Run 1's failure is the most useful thing in this whole file.** `python -m
+pytest` inserts the current directory into `sys.path`; the bare `pytest`
+console script does not. Every local run had used the `-m` form, so
+`from src.api import app` resolved and the suite passed — for a reason that had
+nothing to do with the code. The tests were never portable. Fixed with
+`pythonpath = ["."]` in `pyproject.toml` rather than by changing the CI command,
+so both invocations behave identically.
+
+**Run 2's deploy failure corrects a wrong assumption:** a missing secret does
+*not* skip a job, it fails it. `secrets` is not available in a job-level `if`
+at all. Deploy was skipped in run 1 only because the `needs:` gate blocked it
+behind the failing test job.
+
+### Remaining to go live
+
+1. `flyctl auth login` (Fly requires a payment method on file)
+2. `flyctl launch --no-deploy` — **say yes to the existing `fly.toml`**; it
+   carries the 1 GB sizing, the 90 s health-check grace period and
+   `TORCH_THREADS=1`, all of which came from measurement. App names are
+   globally unique, so pick one and commit it back to `fly.toml` (CI reads the
+   verify URL from there).
+3. `flyctl deploy --remote-only` — by hand, watched, before CI ever does it
+4. `flyctl auth token` → GitHub repository secret `FLY_API_TOKEN`
+5. Push a small change and watch the full pipeline deploy unattended
+6. **`flyctl apps destroy <app>` when finished.** Fly bills hourly; a few days
+   costs cents, leaving it up indefinitely is ~$5.70/mo.
+
+Nothing is currently billing. Nothing is time-sensitive.
 
 ## Note on how stages 1d–6 were built
 
