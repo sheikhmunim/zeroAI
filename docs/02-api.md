@@ -79,9 +79,9 @@ inference under `torch.inference_mode()` mutates nothing.
 ```python
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    state["detector"] = Detector(HEAD_PATH)   # startup
+    state["detector"] = Detector(HEAD_PATH)  # startup
     yield
-    state["detector"] = None                  # shutdown
+    state["detector"] = None  # shutdown
 ```
 
 Code above `yield` runs at startup, below at shutdown. This replaces the older
