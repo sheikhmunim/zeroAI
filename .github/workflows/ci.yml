@@ -147,4 +147,5 @@ jobs:
       - name: Verify production
         run: |
           sleep 5
+          cd ~/homeserver/zeroAI
           python3 scripts/smoke_test.py https://zeroai.sheikhmunim.com --timeout 180
