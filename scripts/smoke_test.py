@@ -36,6 +36,12 @@ from pathlib import Path
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 
+# Cloudflare's default security rules block the stock "Python-urllib/x.y"
+# User-Agent with a 403 before the request ever reaches the tunnel -- looks
+# identical to the server being down, except every poll fails instantly
+# instead of timing out.
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; smoke-test/1.0)"}
+
 passed, failed = 0, 0
 
 
@@ -60,9 +66,10 @@ def wait_for_health(base_url: str, timeout: int) -> dict | None:
     deadline = time.time() + timeout
     last_error = "no attempt made"
 
+    request = urllib.request.Request(f"{base_url}/health", headers=HEADERS)
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(f"{base_url}/health", timeout=10) as response:
+            with urllib.request.urlopen(request, timeout=10) as response:
                 if response.status == 200:
                     body = json.loads(response.read())
                     if body.get("model_loaded"):
@@ -91,7 +98,7 @@ def post_image(base_url: str, path: Path, query: str = "") -> tuple[int, dict]:
     request = urllib.request.Request(
         f"{base_url}/predict{query}",
         data=payload,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        headers={**HEADERS, "Content-Type": f"multipart/form-data; boundary={boundary}"},
         method="POST",
     )
     try:
